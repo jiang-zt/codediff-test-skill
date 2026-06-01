@@ -1,0 +1,29 @@
+{
+  "source_type": "pull_request",
+  "repo": "example/order-service",
+  "pr_number": 42,
+  "title": "Add refund validation",
+  "html_url": "https://github.com/example/order-service/pull/42",
+  "base_ref": "main",
+  "head_ref": "feature/refund-validation",
+  "base_sha": "base-sha",
+  "head_sha": "head-sha",
+  "files": [
+    {
+      "path": "src/main/java/com/example/order/controller/OrderController.java",
+      "status": "modified",
+      "additions": 12,
+      "deletions": 2,
+      "changes": 14,
+      "patch": "@@ -1,5 +1,15 @@\n+@RestController\n+@RequestMapping(\"/api/orders\")\n+public class OrderController {\n+    @PostMapping(\"/refund\")\n+    public Result<RefundResp> refund(@RequestBody RefundReq req) {\n+        return orderService.refund(req);\n+    }\n+}\n"
+    },
+    {
+      "path": "src/main/java/com/example/order/service/OrderServiceImpl.java",
+      "status": "modified",
+      "additions": 8,
+      "deletions": 1,
+      "changes": 9,
+      "patch": "@@ -20,6 +20,10 @@\n+public Result<RefundResp> refund(RefundReq req) {\n+    validateRefundAmount(req);\n+    return doRefund(req);\n+}\n"
+    }
+  ]
+}
