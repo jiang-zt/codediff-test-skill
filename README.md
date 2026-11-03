@@ -58,7 +58,7 @@ python3 -m venv .venv
 
 ## 连接客户端
 
-参考 `examples/mcp-config.example.json`，将所有 `/绝对路径/...` 替换为实际路径，再添加到客户端的 MCP 配置。不同客户端的配置界面可能不同；本项目不会自动修改客户端配置或开启自动批准。
+参考 `examples/mcp-config.example.json`，将所有 `/绝对路径/...` 替换为实际路径，再添加到客户端的 MCP 配置。
 
 - `command`：本项目 `.venv/bin/python` 的绝对路径。
 - `args`：本项目 `mcp_server.py` 的绝对路径。
