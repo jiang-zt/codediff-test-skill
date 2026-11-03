@@ -1,0 +1,14 @@
+{
+  "note": "人工编写的链路演示输入；不是模型实际生成结果，也不是可直接用于真实业务的测试用例。",
+  "cases": [
+    {
+      "name": "模拟平台用例优先级校验示例",
+      "priority": "P1",
+      "steps": [
+        {"action": "调用模拟平台参数校验函数，传入 priority=P3 的用例和有效配置", "expected": "校验结果提示 priority 只允许 P0、P1、P2"}
+      ],
+      "evidence": ["tools/test_platform.py: validate_payload"]
+    }
+  ],
+  "config": {"test_environment": "test", "execution_count": 1, "interface_type": "HTTP"}
+}

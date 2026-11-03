@@ -1,1 +1,14 @@
 *.pdf
+
+# Local Python environment and generated analysis data
+.venv/
+__pycache__/
+*.pyc
+.local/
+.env
+.env.*
+diff/
+output/
+tests/
+tools/mock_platform.py
+tools/test_platform.py
