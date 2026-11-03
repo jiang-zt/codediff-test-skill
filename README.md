@@ -19,7 +19,7 @@
 
 模型运行在支持 MCP 的客户端中，本项目不内置模型、模型密钥或自研 Agent 循环。模型需要完整源代码上下文时，使用客户端另行提供并获准的代码读取能力；本 MCP 不提供源文件读取工具。客户端通过 MCP prompt 获取工作流提示。
 
-## 内容与阅读顺序
+## 内容
 
 | 文件 | 职责 |
 | --- | --- |
@@ -36,7 +36,7 @@ codediff-test-skill/
 ├── requirements.txt
 ├── README.md
 ├── tools/
-│   ├── local_git_diff.py
+│   └── local_git_diff.py
 ├── prompts/
 │   └── mcp_workflow.md
 ├── examples/
@@ -75,20 +75,11 @@ python3 -m venv .venv
 
 ## CLI 降级与测试
 
-未接入 MCP 时可直接获取 diff，但需说明这是 CLI，不是模型工具调用：
+未接入 MCP 时可通过 CLI 直接获取 diff：
 
 ```bash
 CODEDIFF_ALLOWED_REPOS=/绝对路径/业务仓库 .venv/bin/python tools/local_git_diff.py \
   --repo-path /绝对路径/业务仓库 --base master --head feature/example
 ```
-
-默认输出标准 JSON，不写文件；只有传 `--output` 才写入指定文件。CLI 与 MCP 共用 diff 实现，不是另一套分析引擎。
-
-运行整个测试集：
-
-```bash
-.venv/bin/python -m unittest discover -s tests -v
-```
-
-测试仅使用临时 Git 仓库和本机临时 HTTP 服务，不调用真实模型或公司平台。受限环境需要允许本机回环监听和启动 stdio 子进程。
+默认输出标准 JSON，传 `--output` 写入指定文件。
 
