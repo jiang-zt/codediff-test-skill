@@ -2,10 +2,13 @@
   "mcpServers": {
     "codediff-test": {
       "command": "/绝对路径/codediff-test-skill/.venv/bin/python",
-      "args": ["/绝对路径/codediff-test-skill/mcp_server.py"],
+      "args": [
+        "/绝对路径/codediff-test-skill/mcp_server.py"
+      ],
       "env": {
         "CODEDIFF_ALLOWED_REPOS": "/绝对路径/待分析Git仓库",
-        "CODEDIFF_TEST_PLATFORM_URL": "http://127.0.0.1:18766"
+        "CODEDIFF_GITHUB_REPOS": "OWNER/REPO",
+        "CODEDIFF_GITHUB_TOKEN": "在本机配置只读令牌，不要提交真实令牌"
       }
     }
   }

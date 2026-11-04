@@ -1,85 +1,78 @@
 # CodeDiff Test MCP
 
-代码变更辅助测试的 stdio MCP 服务。向客户端暴露 `get_code_diff` 和 `submit_test_cases` 两个工具，以及可选的 `analyze_branch_tests` 工作流提示。
-客户端模型负责分析和生成用例，本服务负责读取 Git 差异、校验提交参数及向保存用例。
+提供「获取 GitHub PR」、「 提测版本 diff」、「获取对应版本的完整代码」功能给AI调用, 辅助测试进行评审或测试影响分析。测试人员无需 clone 或准备本地仓库。建议在IDE(VS Code、IDEA、Cursor等)中进行配置使用。
 
+## 工具
 
-## 调用过程
+| 工具 | 输入 | 用途 |
+| --- | --- | --- |
+| `get_review_diff` | `repo`、`pr_number` 或 `sha` | 获取 PR 变更；SHA 无唯一 PR 时返回候选，旧 SHA 不会静默替换为最新版本 |
+| `get_test_diff` | `repo`、`base_sha`、`head_sha` | 获取基线到提测版本差异；基线必须为提测版本祖先 |
+| `read_github_file` | `repo`、`commit_sha`、`path` | 获取指定提交的完整 UTF-8 文本文件，不超过 1MB |
+| `get_code_diff` | `repo_path`、`head`、可选 `base` | 本地 Git 两个提交树比较；默认 base=master |
 
-```text
-用户自然语言 + 仓库/base/head
-  → 客户端模型选择 get_code_diff tool
-  → MCP Server 执行只读 Git 命令
-  → 返回固定提交 SHA、变更文件和 patch
-  → 客户端模型分析并生成用例草稿
-  → submit_test_cases 返回缺参清单或提交预览
-  → 用户补齐、审核并确认
-  → MCP 保存到本地模拟平台，返回 simulated=true 回执
-```
+`repo` 格式为 `OWNER/REPO`，所有 GitHub SHA 参数要求 **40 位完整 SHA**。用户提供 PR 链接时，由 AI 提取仓库和编号。仅 SHA 无法确定仓库，需提供仓库或明确配置的唯一仓库。
 
-模型运行在支持 MCP 的客户端中，本项目不内置模型、模型密钥或自研 Agent 循环。模型需要完整源代码上下文时，使用客户端另行提供并获准的代码读取能力；本 MCP 不提供源文件读取工具。客户端通过 MCP prompt 获取工作流提示。
+工具仅提供证据, 暂无内置模型、判断评审通过、静态扫描、回写 PR等扩展功能, 暂不接入 CI 门禁。
 
-## 内容
+## 安装与配置
 
-| 文件 | 职责 |
-| --- | --- |
-| `tools/local_git_diff.py` | 读取本地已提交分支差异 |
-| `mcp_server.py` | 官方 MCP SDK 的 stdio 入口，暴露两个工具及工作流 prompt |
-| `prompts/mcp_workflow.md` | 模型如何取 diff、分析、补齐配置和等待确认 |
-| `examples/mcp-config.example.json` | 客户端 stdio 配置示例 |
-| `examples/sample_cases.json` | 人工编写的模拟提交输入 |
-| `tests/` | Git、参数校验、本地 HTTP、真实 MCP stdio 集成测试 |
-
-```text
-codediff-test-skill/
-├── mcp_server.py
-├── requirements.txt
-├── README.md
-├── tools/
-│   └── local_git_diff.py
-├── prompts/
-│   └── mcp_workflow.md
-├── examples/
-│   ├── mcp-config.example.json
-│   └── sample_cases.json
-└── tests/
-```
-
-## 安装
-
-需要 Python 3.11+、Git。在项目根目录执行：
+需要 Python 3.11+；仅使用本地 Git 功能时才需要 Git。
 
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
 
-使用官方 Python SDK `mcp==2.3.0`，不修改全局 Python 环境。
+MCP SDK `mcp==2.3.0`。参考 `examples/mcp-config.example.json` 添加到 IDE 的 MCP 配置，替换 Python 和脚本绝对路径：
 
-## 连接客户端
+- `CODEDIFF_GITHUB_REPOS`：允许读取的仓库，例如 `team/service,team/shared`。fork PR 的 head 仓库也需列入，按需明确授权。
+- `CODEDIFF_GITHUB_TOKEN`：本机配置 GitHub 只读凭证。Fine-grained token 选择目标仓库，授予 **Contents: Read** 和 **Pull requests: Read**。公共仓库可留空；私有仓库需要有权限的凭证，组织策略可能要求额外批准。
+- `CODEDIFF_ALLOWED_REPOS`：使用本地功能时需要；多个绝对路径用系统路径分隔符连接（macOS/Linux 为 `:`）。
 
-参考 `examples/mcp-config.example.json`，将所有 `/绝对路径/...` 替换为实际路径，再添加到客户端的 MCP 配置。
+配置示例只有占位符，必须替换或删除令牌占位符。配置后重启/重新加载 MCP，检查出现上述工具。当前四个工具均为只读工具。
 
-- `command`：本项目 `.venv/bin/python` 的绝对路径。
-- `args`：本项目 `mcp_server.py` 的绝对路径。
-- `CODEDIFF_ALLOWED_REPOS`：明确允许读取的仓库根目录；多个路径用系统路径分隔符连接（macOS/Linux 为 `:`）。不自动允许其子目录或其他仓库。
-- `CODEDIFF_TEST_PLATFORM_URL`：只允许 `http://127.0.0.1:端口`，默认18766。
+## IDE 对话示例
 
-重新加载客户端后，应看到 `get_code_diff`、`submit_test_cases` 两个工具。不要给写工具配置自动批准；`confirmed` 是调用方的确认声明，并不是服务端对真人身份的认证。
+PR 评审：
 
-然后发送自然语言，例如：
+> 评审 https://github.com/OWNER/REPO/pull/123。调用 get_review_diff，再用 read_github_file 读取完整变更方法和必要依赖，输出带代码证据的缺陷与风险，不回写 PR。
 
-> 对 `/绝对路径/业务仓库` 的 `feature/example` 相对 `master` 做测试分析。先获取 diff，结合可见代码生成用例；缺少业务信息请列出来，暂不提交。
+仅有开发给的 SHA：
 
-检查客户端真实工具调用记录，而不是只看模型文字。缺少目标分支时先补充输入。默认 master 不存在时，明确指定实际基准；工具不会静默改成 main。
+> 评审 OWNER/REPO 中提交 <40位SHA> 关联的 PR；如果多个 PR 或不是最新 head，先告诉我，不自动更换版本。
 
-## CLI 降级与测试
+提测分析：
 
-未接入 MCP 时可通过 CLI 直接获取 diff：
+> 对 OWNER/REPO 做提测分析，base_sha=<上次已测版本40位SHA>，head_sha=<本次提测40位SHA>。先取 diff，再读取对应版本完整代码，给出影响范围、回归重点和测试用例草稿。
+
+客户端支持 MCP prompts 时，可调用 `analyze_github_changes`（mode=`review`/`test`）。完整流程见 `prompts/github_workflow.md`。服务器工具描述也包含基本选路与上下文要求；仅注册 MCP 不保证所有 IDE 模型严格遵循提示，需查看真实工具调用记录。
+
+## 版本与完整性
+
+- PR 使用共同祖先到 head 的差异，返回 `target_base_sha`、`comparison_base_sha`、`head_sha` 和 `head_repo`。读取前后核对 PR 版本，更新则报错重试。
+- 提测使用 GitHub compare；只有基线是 head 祖先时才接受，确保符合版本端点比较。分叉时返回 `DIVERGED_BASE`，不擅自改变基线。
+- PR 文件列表分页读取，并核对数量；compare 文件列表达到300个时保守标记不完整。缺少 patch 时 `complete=false`。
+- `complete=true` 只表示列表完整且 patch 字段存在，**不保证 GitHub patch 未截断，也不代表模型分析完整**。模型须读取完整文件，明确未覆盖范围。
+- 删除文件读 `comparison_base_sha`；重命名旧文件读 `previous_path`。fork PR 的 head 文件用 `head_repo` 读取，仍受仓库白名单限制。
+- 每次工具调用有20秒请求超时、单响应4MB、累计8MB预算。只访问 `https://api.github.com`，不跟随重定向或外部下载链接。不支持 GitHub Enterprise 自定义域名或 GitLab MR。
+- Contents API可能解引用仓库内符号链接；文件工具的 `complete` 只说明返回文本完整，不保证是请求路径的原始 Git blob。符号链接本身的变更需另行核对。
+- 不提供全仓库搜索或完整调用链分析。模型按已知路径读取相关接口、测试和配置；路径未知或跨服务依赖缺失时需补充材料，不能猜测。
+
+## 本地能力
+
+`get_code_diff` 只读取允许的本地仓库，比较两个已提交树，不包含未提交内容，不自动 fetch/pull/checkout。
 
 ```bash
 CODEDIFF_ALLOWED_REPOS=/绝对路径/业务仓库 .venv/bin/python tools/local_git_diff.py \
   --repo-path /绝对路径/业务仓库 --base master --head feature/example
 ```
-默认输出标准 JSON，传 `--output` 写入指定文件。
 
+本地分析 prompt 为 `analyze_branch_tests`。
+
+## 文件与验证
+
+- `tools/github_reader.py`：GitHub 只读获取、校验和错误处理。
+- `tools/local_git_diff.py`：原有本地 Git 读取。
+- `mcp_server.py`：stdio MCP 工具和 prompts。
+- `prompts/github_workflow.md`：远程评审与提测工作流。

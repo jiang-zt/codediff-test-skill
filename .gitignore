@@ -9,6 +9,4 @@ __pycache__/
 .env.*
 diff/
 output/
-tests/
-tools/mock_platform.py
-tools/test_platform.py
+tests/*
