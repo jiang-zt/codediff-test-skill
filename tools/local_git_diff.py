@@ -132,6 +132,35 @@ def get_local_diff(repo_path: str, base: str = 'master', head: str = 'HEAD', *,
                            '不包含跨服务调用链分析；二进制变更需人工检查。']}
 
 
+def read_local_file(repo_path: str, commit_sha: str, path: str) -> dict:
+    """Read a literal regular blob from an authorized pinned tree, never the worktree."""
+    if not isinstance(commit_sha, str) or not re.fullmatch(r'[0-9a-fA-F]{40}', commit_sha):
+        raise DiffError('INVALID_SHA', '读取文件需要40位完整提交 SHA。')
+    if (not isinstance(path, str) or not path or path.startswith('/') or '\\' in path
+            or any(p in ('', '.', '..') for p in path.split('/'))
+            or any(ord(c) < 32 for c in path)):
+        raise DiffError('INVALID_PATH', '请提供仓库内的相对文件路径。')
+    # Reuse exact-root authorization and object validation without changing existing callers.
+    verified = get_local_diff(repo_path, commit_sha, commit_sha)
+    sha = verified['head_sha']
+    reader = GitReader(Path(verified['repo']), 1_100_000)
+    entry = reader.run('ls-tree', '-z', sha, '--', ':(literal)' + path).rstrip('\0')
+    if not entry:
+        raise DiffError('FILE_NOT_FOUND', '固定提交中不存在该文件。')
+    metadata, actual_path = entry.split('\t', 1)
+    mode, kind, blob = metadata.split()
+    if actual_path != path or mode not in ('100644', '100755') or kind != 'blob':
+        raise DiffError('UNSUPPORTED_FILE', '仅支持普通文本文件，不读取符号链接、目录或子模块。')
+    if int(reader.run('cat-file', '-s', blob)) > 1_000_000:
+        raise DiffError('FILE_TOO_LARGE', '文件超过1MB。')
+    content = reader.run('cat-file', 'blob', blob)
+    if '\0' in content:
+        raise DiffError('UNSUPPORTED_FILE', '不支持二进制文件。')
+    return {'source_type': 'local_git', 'repo': verified['repo'], 'commit_sha': sha,
+            'path': path, 'blob_sha': blob, 'content': content,
+            'line_count': len(content.splitlines()), 'complete': True}
+
+
 def main() -> int:
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repo-path',required=True);parser.add_argument('--base',default='master')

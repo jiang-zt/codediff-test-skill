@@ -1,5 +1,15 @@
 # CodeDiff Test MCP
 
+## 独立 Skill 入口
+
+现支持由模型驱动的 [CodeDiff Skill](SKILL.md)，复用现有 GitHub、本地 Git 和报告保存模块，无需启动 MCP、接入独立模型 API 或 LangSmith。脚本仅使用 Python 3.11+ 标准库；本地模式需要 Git。
+
+- 入口：[SKILL.md](SKILL.md)，接口与配置：[references/skill-workflow.md](references/skill-workflow.md)。
+- CLI：`python3 /绝对路径/Codediff/scripts/codediff.py --help`。支持 `start-local`、`start-github`、`read`、`status`、`save`，统一 JSON 回执与退出码。
+- 每次分析绑定固定版本会话，保存完整文件证据及 SHA256、读取失败与未覆盖文件；保存前校验用例和正文中的证据引用与行号。产物增加 `evidence.json`，包含源码，仅保存在用户指定目录。
+- 分发时一并保留 scripts、tools、references 及共享 prompts 资源，按目标宿主支持的 Skill 目录部署；当前仓库未自动安装到全局。
+- 现有 MCP 入口继续保留；下文的 MCP 安装说明仅适用于 MCP 使用方式。
+
 提供「获取 GitHub PR」、「 提测版本 diff」、「获取对应版本的完整代码」功能给AI调用, 辅助测试进行评审或测试影响分析。测试人员无需 clone 或准备本地仓库。分析完成后可自动保存Markdown报告和JSON用例草稿。建议在IDE(VS Code、IDEA、Cursor等)中进行配置使用。
 
 ## 工具
@@ -47,7 +57,17 @@ PR 评审：
 
 > 对 OWNER/REPO 做提测分析，base_sha=<上次已测版本40位SHA>，head_sha=<本次提测40位SHA>。先取 diff，再读取对应版本完整代码，给出影响范围、回归重点和测试用例草稿，将报告和用例保存到 `/Users/你的用户名/测试报告` 并返回文件路径。
 
-客户端支持 MCP prompts 时，可调用 `analyze_github_changes`（mode=`review`/`test`）。完整流程见 `prompts/github_workflow.md`。服务器工具描述也包含基本选路与上下文要求；仅注册 MCP 不保证所有 IDE 模型严格遵循提示，需查看真实工具调用记录。
+客户端支持 MCP prompts 时，可调用 `analyze_github_changes`（mode=`review`/`test`）。取数流程见 `prompts/github_workflow.md`；两个入口都会自动拼接 `prompts/analysis_output.md` 的统一分析与交付规范。服务器工具描述也包含基本选路与上下文要求；仅注册 MCP 不保证所有 IDE 模型严格遵循提示，需查看真实工具调用记录。
+
+## 统一的分析文档与用例
+
+两个Prompt只分别维护取数与版本对齐流程，共享 `prompts/analysis_output.md`，而非各写一份输出模板。返回给客户端的Prompt已包含公共规范全文，不需要模型另行读取本机文件。
+
+分析文档以附件《营销测试分析模版》的六类维度为基础：需求与业务背景、系统实现分析、风险分析及测试策略、功能测试分析、专项测试分析、灰度及上线策略；结合《京东测试环境白皮书》补充测试环境、依赖/泳道隔离、数据物料及Mock准备。另保留分析概览、证据范围、用例执行参考和待确认项。
+
+上述为通用参考结构：按当前代码与需求逐项判断“涉及/不涉及/待确认”，不套用附件业务示例、平台地址或账号。运行时不依赖原始PDF，也不自动连接附件提及的平台。
+
+用例需说明前置状态、数据准备、具体操作、可观察断言、清理方式与代码/需求证据。缺环境、数据或验收规则时明确缺口；不会凭提示词就保证用例可直接执行或分析覆盖充分。
 
 ## 自动生成的文件
 
@@ -63,7 +83,7 @@ PR 评审：
 ```
 
 - `report.md`：仓库、实际比较SHA、UTC时间、模型分析及可阅读的用例步骤和预期结果。
-- `test_cases.json`：版本与生成信息、`status=draft`、用例数量及结构化用例列表。每条用例要求 `name`、`steps[{action,expected}]`、非空 `evidence`，可选 `priority=P0/P1/P2`。没有可靠用例时保存空列表。
+- `test_cases.json`：版本与生成信息、`status=draft`、用例数量及结构化用例列表。每条用例要求 `name`、`steps[{action,expected}]`、非空 `evidence`，可选 `priority=P0/P1/P2`。新用例还可提供 `id`、`category`、`preconditions`、`test_data`、`cleanup`、`missing_inputs`，在报告中完整展示；四个上下文字段均为文本列表。`execution_status` 如提供只能为 `not_executed`，实际结果显示为未执行。有待补信息时注明“待补齐后执行”，没有可靠用例时保存空列表。
 - 工具会创建尚不存在的目录，并在其中为每次调用创建独立子目录，不覆盖历史记录；重试会创建新目录。报告与用例输入总计不超过2MB，最多500条用例，每条最多100步。
 - 返回绝对 `report_path`、`test_cases_path` 和 `case_count`。文件在MCP运行的机器上；远程客户端需自行获取文件，这不是文件下载接口。
 - MCP不内置模型；“自动”依赖客户端模型遵循服务器指令/工作流，在分析后真实调用保存工具。用户要求仅对话输出时跳过；仅返回 `ok=true,status=saved` 才能声称已生成文件。
@@ -89,7 +109,7 @@ CODEDIFF_ALLOWED_REPOS=/绝对路径/业务仓库 .venv/bin/python tools/local_g
   --repo-path /绝对路径/业务仓库 --base master --head feature/example
 ```
 
-本地分析 prompt 为 `analyze_branch_tests`。
+本地分析 prompt 为 `analyze_branch_tests`，读取 `prompts/local_git_workflow.md`（原 `mcp_workflow.md` 已重命名）；Prompt 名称及参数保持不变。
 
 ## 文件与验证
 
@@ -97,7 +117,9 @@ CODEDIFF_ALLOWED_REPOS=/绝对路径/业务仓库 .venv/bin/python tools/local_g
 - `tools/analysis_artifacts.py`：报告与测试草稿校验、本地独立目录写入。
 - `tools/local_git_diff.py`：原有本地 Git 读取。
 - `mcp_server.py`：stdio MCP 工具和 prompts。
-- `prompts/github_workflow.md`：远程评审与提测工作流。
+- `prompts/github_workflow.md`：远程评审与提测的证据获取流程。
+- `prompts/local_git_workflow.md`：本地Git的证据获取流程。
+- `prompts/analysis_output.md`：两个Prompt共享的报告维度、可操作用例约定及保存规则。
 
 验证命令：
 

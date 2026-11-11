@@ -40,6 +40,17 @@ def _validate(mode, repo, base_sha, head_sha, report_markdown, test_cases):
         _text(case.get('name'), f'用例{index}.name')
         if case.get('priority','P1') not in ('P0','P1','P2'):
             raise ArtifactError('INVALID_CASES', f'用例{index}.priority 仅允许P0/P1/P2。')
+        for field in ('id','category'):
+            if field in case:
+                _text(case[field], f'用例{index}.{field}')
+        for field in ('preconditions','test_data','cleanup','missing_inputs'):
+            if field in case:
+                if not isinstance(case[field],list):
+                    raise ArtifactError('INVALID_CASES', f'用例{index}.{field}必须为文本列表。')
+                for value in case[field]:
+                    _text(value, f'用例{index}.{field}')
+        if 'execution_status' in case and case['execution_status'] != 'not_executed':
+            raise ArtifactError('INVALID_CASES', f'用例{index}未执行测试，execution_status只能为not_executed。')
         steps = case.get('steps')
         if not isinstance(steps,list) or not steps or len(steps)>100:
             raise ArtifactError('INVALID_CASES', f'用例{index}.steps 需有1至100个步骤。')
@@ -96,8 +107,21 @@ def save_analysis(mode: str, repo: str, base_sha: str, head_sha: str,
         report += '本次未保存测试用例；请参见分析中的证据限制或待确认项。\n'
     for index, case in enumerate(cases, 1):
         report += f'### {index}. {case["name"]}\n\n优先级：{case.get("priority","未指定")}\n\n'
+        if 'id' in case:
+            report += f'用例ID：{case["id"]}\n\n'
+        if 'category' in case:
+            report += f'分类：{case["category"]}\n\n'
+        report += '实际结果：未执行\n\n'
+        if case.get('missing_inputs'):
+            report += '执行准备：待补齐后执行\n\n'
+        for field, label in (('preconditions','前置条件'),('test_data','测试数据'),
+                             ('missing_inputs','待补信息')):
+            if case.get(field):
+                report += label+'：\n\n'+''.join(f'- {value}\n' for value in case[field])+'\n'
         for number, step in enumerate(case['steps'], 1):
             report += f'{number}. 操作：{step["action"]}\n\n   预期：{step["expected"]}\n\n'
+        if case.get('cleanup'):
+            report += '清理与恢复：\n\n'+''.join(f'- {value}\n' for value in case['cleanup'])+'\n'
         report += '证据：' + '；'.join(case['evidence']) + '\n\n'
     report += '\n用例为模型生成的草稿，未执行测试。\n'
     payload = json.dumps({**metadata, 'cases':cases}, ensure_ascii=False, indent=2, allow_nan=False)+'\n'
