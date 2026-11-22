@@ -11,6 +11,11 @@ import sys
 import threading
 from typing import Iterable
 
+if __package__ in (None, ''):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.change_symbols import changed_lines
+
 
 class DiffError(ValueError):
     def __init__(self, code: str, message: str):
@@ -124,6 +129,8 @@ def get_local_diff(repo_path: str, base: str = 'master', head: str = 'HEAD', *,
         item['changes']=item['additions']+item['deletions']
         paths=[item['path']] if not item['previous_path'] else [item['previous_path'],item['path']]
         item['patch']=reader.run(*common,'--unified=3',base_sha,head_sha,'--',*[':(literal)'+p for p in paths])
+        item['changed_lines'] = changed_lines(item['patch'], additions=item['additions'],
+                                              deletions=item['deletions'], binary=item['binary'])
     return {'source_type':'local_git','repo':str(repo),'base_ref':base,'head_ref':head,
             'base_sha':base_sha,'head_sha':head_sha,'has_changes':bool(files),'files':files,
             'comparison':'two_committed_trees',

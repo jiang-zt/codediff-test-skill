@@ -2,9 +2,9 @@
 
 ## 配置与分发
 
-此仓库根目录即 Skill 包。项目内使用时读取根目录 SKILL.md；要让宿主自动发现，可将包部署到该宿主支持的 Skill 目录，命名为 codediff。至少保留 SKILL.md、scripts/、tools/、references/ 和 prompts/analysis_output.md；只复制 SKILL.md 无法运行。不要分发 .git、.venv、.env、output 或用户会话。此次实现不自动安装到全局。
+此仓库根目录即 Skill 包。项目内使用时读取根目录 SKILL.md；要让宿主自动发现，可将包部署到该宿主支持的 Skill 目录，命名为 codediff。至少保留 SKILL.md、tools/、prompts/skill-workflow.md 和 prompts/analysis_output.md；只复制 SKILL.md 无法运行。不要分发 .git、.venv、.env、output 或用户会话。此次实现不自动安装到全局。
 
-Python 3.11+ 的标准库即可运行脚本，无需安装 requirements.txt；该文件继续服务于可选 MCP 入口。
+Python 3.11+ 的标准库即可运行脚本，无需安装额外依赖。
 
 - 本地：`CODEDIFF_ALLOWED_REPOS` 配置允许的仓库根目录绝对路径，多个使用系统路径分隔符（macOS/Linux 为 `:`，Windows 为 `;`）。
 - GitHub：`CODEDIFF_GITHUB_REPOS` 配置允许的 `owner/repo`，多个用逗号分隔。fork PR 的 head 仓库同样需要明确授权。
@@ -18,7 +18,7 @@ Python 3.11+ 的标准库即可运行脚本，无需安装 requirements.txt；�
 本地 Git，仅比较已提交版本，不包含未提交内容，不执行 fetch/pull/checkout：
 
 ```bash
-python3 "/绝对路径/codediff/scripts/codediff.py" start-local \
+python3 "/绝对路径/codediff/tools/codediff.py" start-local \
   --repo-path "/授权仓库绝对路径" --base master --head feature/example \
   --session-root "/获准工作目录/会话"
 ```
@@ -26,7 +26,7 @@ python3 "/绝对路径/codediff/scripts/codediff.py" start-local \
 GitHub PR：
 
 ```bash
-python3 "/绝对路径/codediff/scripts/codediff.py" start-github \
+python3 "/绝对路径/codediff/tools/codediff.py" start-github \
   --repo team/service --mode review --pr-number 123 \
   --session-root "/获准工作目录/会话"
 ```
@@ -37,10 +37,12 @@ GitHub 提测：使用 `--mode test --base-sha <40位SHA> --head-sha <40位SHA>`
 
 返回 analysis_id、session_dir、diff。检查实际 base/head、head_repo、files、complete/file_list_complete 与 limitations；`complete=true` 不保证 GitHub patch 未截断。
 
+diff 的每个文件项新增 `changed_lines`：`added` 使用 head 行号，`deleted` 使用 base 行号。`status` 为 `complete`、`partial`、`unavailable`、`binary` 或 `no_text_changes`；同时查看 `limitations`。`complete` 仅表示提供的 patch hunk 与已知统计一致，不保证上游未省略其他内容，不代表语义分析完整。二进制与缺失 patch 不产生推测行号。
+
 ## 2. 补充固定版本完整文件
 
 ```bash
-python3 "/绝对路径/codediff/scripts/codediff.py" read \
+python3 "/绝对路径/codediff/tools/codediff.py" read \
   --session "/返回的会话目录" --side head --path src/service.py
 ```
 
@@ -51,13 +53,21 @@ python3 "/绝对路径/codediff/scripts/codediff.py" read \
 - 文件数与内容预算跨会话调用累计；重复读取也计入50份限制。单次 GitHub 请求20秒超时、单响应4MB、单 Reader 累计8MB，沿用已有模块；不是整项任务20秒截止时间。
 - 路径未知时明确缺口；不自动扫描全仓库或猜测跨服务关系。文件读取失败会记录安全错误码。
 
+读取变更文件时，回执 `evidence.symbol_locations` 增加符号定位辅助信息，无需新命令或依赖：
+
+- 当前支持 `.py`，使用标准库 AST；提取类、同步/异步函数和方法的 `qualified_name`、`kind`、`start_line`、`end_line`、`ancestors` 及 `changed_lines`。装饰器计入起始范围，变更行归于最内层符号；列表还保留文件其他符号，只有 `changed_lines` 非空的项被直接命中。
+- `module_lines` 表示不落在任何符号区间的行（含模块级语句或未归属注释/空白），`unmapped_lines` 表示越界或无法解析/定位的行。不能把未归属行强行归给附近方法。
+- base 只映射删除行，head 只映射新增行；重命名 base 使用 previous_path。符号结果绑定当前文件证据，不自动配对 M/H 方法，不建立调用图。
+- 结果 `status` 为 `complete`、`partial`、`parse_error` 或 `unsupported_language`；查看 `line_status` 和 `limitations`。解释器不支持的 Python 语法也会产生 parse_error，不能据此判定业务代码有缺陷。
+- 按需读取后才生成相应侧的定位结果，不额外扫描或读取文件，沿用会话证据预算。旧会话缺少 changed_lines 时，在读取变更文件时补充；原始 patch 与文件证据保持不变。
+
 ## 3. 检查证据范围
 
 ```bash
-python3 "/绝对路径/codediff/scripts/codediff.py" status --session "/返回的会话目录"
+python3 "/绝对路径/codediff/tools/codediff.py" status --session "/返回的会话目录"
 ```
 
-检查 evidence、unread_files、failed_reads、diff_complete 和 saves。GitHub 的 diff_complete 沿用 API 完整性标记；本地模式为 null，表示原本地模块不提供该字段，不表示失败或已证明完整，本地差异超出读取预算会直接报错。unread_files 只检查删除文件的 base 或其他变更的 head 是否读过，不表示旧逻辑、依赖或需求已分析；失败记录保留最近100条。会话为本地 JSON，不是有签名的审计系统。
+检查 evidence、unread_files、failed_reads、diff_complete 和 saves。新增 `change_locations` 汇总每个变更文件的行号及已读取侧的符号定位（含 evidence_id、commit_sha、path），尚未读取的一侧不会出现；保存的 evidence.json 同时保留这些 diff 辅助字段与文件证据中的符号定位。GitHub 的 diff_complete 沿用 API 完整性标记；本地模式为 null，表示原本地模块不提供该字段，不表示失败或已证明完整，本地差异超出读取预算会直接报错。unread_files 只检查删除文件的 base 或其他变更的 head 是否读过，不表示旧逻辑、依赖或需求已分析；失败记录保留最近100条。会话为本地 JSON，不是有签名的审计系统。
 
 ## 4. 生成分析 JSON 并保存
 
@@ -87,14 +97,14 @@ python3 "/绝对路径/codediff/scripts/codediff.py" status --session "/返回�
 用例每个 evidence 条目必须完整匹配 `E0001:L1` / `E0001:L1-L2`。正文识别同格式引用并校验；有非空文件证据时正文至少引用一处。脚本不能验证每个自然语言结论与证据语义一致，模型仍需逐项对应。没有完整文件证据时只交付证据不足说明，test_cases=[]。
 
 ```bash
-python3 "/绝对路径/codediff/scripts/codediff.py" save \
+python3 "/绝对路径/codediff/tools/codediff.py" save \
   --session "/返回的会话目录" --input "/获准工作目录/analysis.json" \
   --output-dir "/用户指定报告目录"
 ```
 
 成功新建独立目录，包含 report.md、test_cases.json、evidence.json。报告自动附加版本证据索引、未读取文件、失败和 diff 完整性限制；evidence.json 含完整 diff 与文件内容，便于本地复核。重试会创建新目录，不覆盖历史，也不提供幂等保存。
 
-`test_cases.json` 的顶层为 schema_version、generated_at、mode、repo、base_sha、head_sha、status=draft、case_count 及 cases（输入的 test_cases 列表）。`evidence.json` 包含会话版本元数据、diff、evidence、failed_reads、unread_files 和完整性说明。共享规范中的“MCP运行机器”在此模式下指运行 Python 脚本的机器；产物路径不是远程下载链接。
+`test_cases.json` 的顶层为 schema_version、generated_at、mode、repo、base_sha、head_sha、status=draft、case_count 及 cases（输入的 test_cases 列表）。`evidence.json` 包含会话版本元数据、diff、evidence、failed_reads、unread_files 和完整性说明。产物保存在运行 Python 脚本的机器；产物路径不是远程下载链接。
 
 会话和文件使用私有权限创建；不改变已存在父目录权限。正常写入异常会清理本次产物；强制终止可能留下未完成文件或 .lock，不能据此声称保存成功。确认没有活跃进程后才能人工清理锁/残留目录。
 

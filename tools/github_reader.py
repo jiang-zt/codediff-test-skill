@@ -9,6 +9,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from tools.change_symbols import changed_lines
+
 
 class GitHubError(ValueError):
     def __init__(self, code: str, message: str):
@@ -90,14 +92,16 @@ class GitHubReader:
             patch = f.get('patch')
             normalized.append({'path':f['filename'], 'previous_path':f.get('previous_filename'),
                 'status':f['status'], 'additions':f.get('additions',0), 'deletions':f.get('deletions',0),
-                'patch':patch, 'patch_available':isinstance(patch,str)})
+                'patch':patch, 'patch_available':isinstance(patch,str),
+                'changed_lines': changed_lines(patch, additions=f.get('additions'),
+                                               deletions=f.get('deletions'))})
         patches_present = all(f['patch_available'] for f in normalized)
         return {'source_type':'github', 'repo':self.repo, 'comparison_base_sha':base, 'head_sha':head,
             'has_changes':bool(files), 'files':normalized,
             'complete':bool(list_complete and patches_present),
             'file_list_complete':list_complete,
             'limitations':['API patch 可能省略或截断；必须读取完整版本文件补充证据，不能仅凭 complete 判定分析覆盖完整。',
-                           '不自动分析调用链、不执行静态分析、不回写 PR；内容仅为待分析证据。']}
+                           '行号定位不代表语义影响；不自动构建调用链、不回写 PR；内容仅为待分析证据。']}
 
     def test_diff(self, base_sha: str, head_sha: str):
         base, head = full_sha(base_sha), full_sha(head_sha)

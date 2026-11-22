@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import uuid
 
+from tools.change_symbols import changed_lines, locate_symbols
 from tools.analysis_artifacts import save_analysis, _validate, _write_text
 from tools.github_reader import GitHubError, GitHubReader, full_sha
 from tools.local_git_diff import DiffError, get_local_diff, read_local_file
@@ -152,6 +153,26 @@ def read_evidence(session, path, side='head'):
                 raise SessionError('SESSION_LIMIT', '文件证据合计超过8MB，请停止取证并注明范围缺口。')
             item = {**result, 'id': f'E{len(state["evidence"]) + 1:04d}',
                     'side': side, 'sha256': digest(result['content'])}
+            for file in state['diff']['files']:
+                if side == 'base' and file['status'] == 'added':
+                    continue
+                if side == 'head' and file['status'] == 'removed':
+                    continue
+                expected_path = (file.get('previous_path') or file['path']) if side == 'base' else file['path']
+                if path != expected_path:
+                    continue
+                # Older sessions did not store changed_lines; derive them lazily.
+                coordinates = file.get('changed_lines')
+                if coordinates is None:
+                    coordinates = changed_lines(file.get('patch'), additions=file.get('additions'),
+                                                deletions=file.get('deletions'), binary=file.get('binary', False))
+                    file['changed_lines'] = coordinates
+                lines = coordinates['deleted' if side == 'base' else 'added']
+                item['symbol_locations'] = locate_symbols(path, item['content'], lines, coordinates['status'])
+                file.setdefault('symbol_locations', {})[side] = {
+                    'evidence_id': item['id'], 'commit_sha': sha, 'path': path,
+                    **item['symbol_locations']}
+                break
             state['evidence'].append(item)
         except (DiffError, GitHubError, SessionError) as error:
             # Keep error codes, not API bodies, environment or credentials.
@@ -181,6 +202,9 @@ def session_status(session):
         validate_evidence(state)
         return {**{k: state[k] for k in ('analysis_id', 'repo', 'base_sha', 'head_sha', 'saves')},
                 'evidence': [{k: v for k, v in e.items() if k != 'content'} for e in state['evidence']],
+                'change_locations': [
+                    {k: v for k, v in f.items() if k in ('path', 'previous_path', 'changed_lines', 'symbol_locations')}
+                    for f in state['diff']['files']],
                 **coverage(state)}
 
 

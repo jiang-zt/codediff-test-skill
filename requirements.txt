@@ -1,2 +1,0 @@
-# Official MCP Python SDK; use a project-local virtual environment.
-mcp==2.3.0

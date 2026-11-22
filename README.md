@@ -1,128 +1,69 @@
-# CodeDiff Test MCP
+# CodeDiff Skill
 
-## 独立 Skill 入口
+CodeDiff 是由模型驱动的代码变更测试分析与评审 Skill。获取本地 Git 分支／提交之间的 diff、远程 GitHub PR diff，或远程两个提交之间的 diff，结合固定版本源码分析变更影响、测试风险和回归范围，生成中文测试分析报告与未执行的测试用例草稿。
 
-现支持由模型驱动的 [CodeDiff Skill](SKILL.md)，复用现有 GitHub、本地 Git 和报告保存模块，无需启动 MCP、接入独立模型 API 或 LangSmith。脚本仅使用 Python 3.11+ 标准库；本地模式需要 Git。
+## 支持的分析场景
 
-- 入口：[SKILL.md](SKILL.md)，接口与配置：[references/skill-workflow.md](references/skill-workflow.md)。
-- CLI：`python3 /绝对路径/Codediff/scripts/codediff.py --help`。支持 `start-local`、`start-github`、`read`、`status`、`save`，统一 JSON 回执与退出码。
-- 每次分析绑定固定版本会话，保存完整文件证据及 SHA256、读取失败与未覆盖文件；保存前校验用例和正文中的证据引用与行号。产物增加 `evidence.json`，包含源码，仅保存在用户指定目录。
-- 分发时一并保留 scripts、tools、references 及共享 prompts 资源，按目标宿主支持的 Skill 目录部署；当前仓库未自动安装到全局。
-- 现有 MCP 入口继续保留；下文的 MCP 安装说明仅适用于 MCP 使用方式。
-
-提供「获取 GitHub PR」、「 提测版本 diff」、「获取对应版本的完整代码」功能给AI调用, 辅助测试进行评审或测试影响分析。测试人员无需 clone 或准备本地仓库。分析完成后可自动保存Markdown报告和JSON用例草稿。建议在IDE(VS Code、IDEA、Cursor等)中进行配置使用。
-
-## 工具
-
-| 工具 | 输入 | 用途 |
+| 场景 | 输入 | CLI 入口 |
 | --- | --- | --- |
-| `get_review_diff` | `repo`、`pr_number` 或 `sha` | 获取 PR 变更；SHA 无唯一 PR 时返回候选，旧 SHA 不会静默替换为最新版本 |
-| `get_test_diff` | `repo`、`base_sha`、`head_sha` | 获取基线到提测版本差异；基线必须为提测版本祖先 |
-| `read_github_file` | `repo`、`commit_sha`、`path` | 获取指定提交的完整 UTF-8 文本文件，不超过 1MB |
-| `save_analysis_report` | `mode`、`repo`、`base_sha`、`head_sha`、`report_markdown`、`output_dir`、可选 `test_cases` | 将模型分析保存为本地报告和用例草稿 |
-| `get_code_diff` | `repo_path`、`head`、可选 `base` | 本地 Git 两个提交树比较；默认 base=master |
+| 本地分支／提交 diff | 已授权的仓库路径、明确的 base/head 分支名或提交引用 | `start-local` |
+| 远程 GitHub PR diff | 已授权的 owner/repo、PR 编号或关联 PR 的完整 SHA | `start-github --mode review` |
+| 远程 GitHub 提交 diff | 已授权的 owner/repo、base/head 的 40 位完整 SHA | `start-github --mode test` |
 
-`repo` 格式为 `OWNER/REPO`，所有 GitHub SHA 参数要求 **40 位完整 SHA**。用户提供 PR 链接时，由 AI 提取仓库和编号。仅 SHA 无法确定仓库，需提供仓库或明确配置的唯一仓库。
+本地分支名在启动时解析为固定 SHA，仅分析已提交内容，不包含工作区未提交改动，也不自动 fetch、pull 或 checkout。远程提交比较要求 base 为 head 的祖先，目前不直接接受远程分支名；PR 输入有歧义或指定 SHA 不是当前 PR head 时，不自动切换版本。
 
-模型负责分析和生成用例，MCP负责提供证据并保存本地文件；不内置模型、不执行静态扫描或测试、不回写PR，暂不接入CI门禁。
+对话请求示例（路径、仓库和版本需替换为实际值）：
 
-## 安装与配置
+- 本地分支：“分析本地仓库 `/绝对路径/业务仓库` 中 `feature/example` 相对 `main` 的变更，给出测试风险、回归范围和用例草稿，保存到 `/绝对路径/报告目录`。”
+- 远程 PR：“对 `https://github.com/OWNER/REPO/pull/123` 做测试影响分析，读取必要源码，将报告与用例草稿保存到 `/绝对路径/报告目录`。”
+- 远程提交：“对 `OWNER/REPO` 的 base `<40位完整SHA>` 到 head `<40位完整SHA>` 做测试分析，保存到 `/绝对路径/报告目录`。”
 
-需要 Python 3.11+；仅使用本地 Git 功能时才需要 Git。
+## 入口与执行
+
+- [SKILL.md](SKILL.md)： Skill 的入口，定义角色、流程和约束。
+- [prompts/skill-workflow.md](prompts/skill-workflow.md)：入口引用的 CLI 参数、配置、回执和停止条件。
+- [prompts/analysis_output.md](prompts/analysis_output.md)：报告与用例规范。
+
+需要 Python 3.11+，脚本仅使用标准库；本地 Git 模式还需要 Git。配置仓库授权与 GitHub 凭证的方法见执行工作流。凭证通过进程环境配置，不在对话中提供。
 
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
+python3 /绝对路径/Codediff/tools/codediff.py --help
 ```
 
-MCP SDK `mcp==2.3.0`。参考 `examples/mcp-config.example.json` 添加到 IDE 的 MCP 配置，替换 Python 和脚本绝对路径：
+执行顺序：`start-local` / `start-github` → `read` → `status` → `save`。所有后续操作绑定 start 返回的会话，使用固定版本证据。同一会话串行操作。
 
-- `CODEDIFF_GITHUB_REPOS`：允许读取的仓库，例如 `team/service,team/shared`。fork PR 的 head 仓库也需列入，按需明确授权。
-- `CODEDIFF_GITHUB_TOKEN`：本机配置 GitHub 只读凭证。Fine-grained token 选择目标仓库，授予 **Contents: Read** 和 **Pull requests: Read**。公共仓库可留空；私有仓库需要有权限的凭证，组织策略可能要求额外批准。
-- `CODEDIFF_ALLOWED_REPOS`：使用本地功能时需要；多个绝对路径用系统路径分隔符连接（macOS/Linux 为 `:`）。
-
-配置示例只有占位符，必须替换或删除令牌占位符。配置后重启/重新加载 MCP，检查出现上述工具。四个证据工具为只读，`save_analysis_report` 只在用户对话中指定的目录下新建文件。客户端可能对该写入工具显示权限提示。
-
-## IDE 对话示例
-
-PR 评审：
-
-> 评审 https://github.com/OWNER/REPO/pull/123。调用 get_review_diff，再用 read_github_file 读取完整变更方法和必要依赖，输出带代码证据的缺陷与风险，将报告和用例草稿保存到 `/Users/你的用户名/测试报告`，返回文件路径。
-
-仅有开发给的 SHA：
-
-> 评审 OWNER/REPO 中提交 <40位SHA> 关联的 PR；如果多个 PR 或不是最新 head，先告诉我，不自动更换版本。
-
-提测分析：
-
-> 对 OWNER/REPO 做提测分析，base_sha=<上次已测版本40位SHA>，head_sha=<本次提测40位SHA>。先取 diff，再读取对应版本完整代码，给出影响范围、回归重点和测试用例草稿，将报告和用例保存到 `/Users/你的用户名/测试报告` 并返回文件路径。
-
-客户端支持 MCP prompts 时，可调用 `analyze_github_changes`（mode=`review`/`test`）。取数流程见 `prompts/github_workflow.md`；两个入口都会自动拼接 `prompts/analysis_output.md` 的统一分析与交付规范。服务器工具描述也包含基本选路与上下文要求；仅注册 MCP 不保证所有 IDE 模型严格遵循提示，需查看真实工具调用记录。
-
-## 统一的分析文档与用例
-
-两个Prompt只分别维护取数与版本对齐流程，共享 `prompts/analysis_output.md`，而非各写一份输出模板。返回给客户端的Prompt已包含公共规范全文，不需要模型另行读取本机文件。
-
-分析文档以附件《营销测试分析模版》的六类维度为基础：需求与业务背景、系统实现分析、风险分析及测试策略、功能测试分析、专项测试分析、灰度及上线策略；结合《京东测试环境白皮书》补充测试环境、依赖/泳道隔离、数据物料及Mock准备。另保留分析概览、证据范围、用例执行参考和待确认项。
-
-上述为通用参考结构：按当前代码与需求逐项判断“涉及/不涉及/待确认”，不套用附件业务示例、平台地址或账号。运行时不依赖原始PDF，也不自动连接附件提及的平台。
-
-用例需说明前置状态、数据准备、具体操作、可观察断言、清理方式与代码/需求证据。缺环境、数据或验收规则时明确缺口；不会凭提示词就保证用例可直接执行或分析覆盖充分。
-
-## 自动生成的文件
-
-保存目录由用户在对话中给出，例如“保存到 `/Users/你的用户名/测试报告`”。`output_dir` 必填，接受绝对路径或 `~/测试报告`，没有默认目录，不再读取 `CODEDIFF_OUTPUT_DIR`。用户未提供目录时，模型先询问；分析可以继续，保存需等到目录明确。
-
-模型完成分析后，在用户指定目录下生成：
+## 文件目录与架构
 
 ```text
-用户指定的保存目录/
-└── test-20261104T080000Z-随机后缀/
-    ├── report.md
-    └── test_cases.json
+Codediff/
+├── SKILL.md                      入口：角色、工作流程与约束
+├── README.md                     使用说明与架构
+├── prompts/
+│   ├── skill-workflow.md         CLI 参数、配置、回执与停止条件
+│   └── analysis_output.md        测试分析报告与用例规范
+└── tools/
+    ├── codediff.py               CLI 入口：start / read / status / save
+    ├── evidence_session.py       会话管理、版本绑定、证据编号与引用校验
+    ├── local_git_diff.py         本地 Git diff 与固定提交文件读取
+    ├── github_reader.py          GitHub PR／提交 diff 与文件读取
+    ├── change_symbols.py         变更行与 Python 符号定位
+    └── analysis_artifacts.py     报告与用例校验、格式化和保存
 ```
 
-- `report.md`：仓库、实际比较SHA、UTC时间、模型分析及可阅读的用例步骤和预期结果。
-- `test_cases.json`：版本与生成信息、`status=draft`、用例数量及结构化用例列表。每条用例要求 `name`、`steps[{action,expected}]`、非空 `evidence`，可选 `priority=P0/P1/P2`。新用例还可提供 `id`、`category`、`preconditions`、`test_data`、`cleanup`、`missing_inputs`，在报告中完整展示；四个上下文字段均为文本列表。`execution_status` 如提供只能为 `not_executed`，实际结果显示为未执行。有待补信息时注明“待补齐后执行”，没有可靠用例时保存空列表。
-- 工具会创建尚不存在的目录，并在其中为每次调用创建独立子目录，不覆盖历史记录；重试会创建新目录。报告与用例输入总计不超过2MB，最多500条用例，每条最多100步。
-- 返回绝对 `report_path`、`test_cases_path` 和 `case_count`。文件在MCP运行的机器上；远程客户端需自行获取文件，这不是文件下载接口。
-- MCP不内置模型；“自动”依赖客户端模型遵循服务器指令/工作流，在分析后真实调用保存工具。用户要求仅对话输出时跳过；仅返回 `ok=true,status=saved` 才能声称已生成文件。
-- 内容仍为模型分析和测试草稿，不代表评审通过或测试已执行。写入失败返回错误并清理本次不完整目录，已保存的历史目录不受影响。
+模型负责选择要读取的文件、理解证据及撰写测试分析；CLI 负责固定版本取数、管理证据和保存产物。分发时保留以上入口、资源及 Python 模块，不分发本地凭证、会话和生成产物。项目仅保留 Skill CLI 链路。
 
-## 版本与完整性
+## 证据与交付
 
-- PR 使用共同祖先到 head 的差异，返回 `target_base_sha`、`comparison_base_sha`、`head_sha` 和 `head_repo`。读取前后核对 PR 版本，更新则报错重试。
-- 提测使用 GitHub compare；只有基线是 head 祖先时才接受，确保符合版本端点比较。分叉时返回 `DIVERGED_BASE`，不擅自改变基线。
-- PR 文件列表分页读取，并核对数量；compare 文件列表达到300个时保守标记不完整。缺少 patch 时 `complete=false`。
-- `complete=true` 只表示列表完整且 patch 字段存在，**不保证 GitHub patch 未截断，也不代表模型分析完整**。模型须读取完整文件，明确未覆盖范围。
-- 删除文件读 `comparison_base_sha`；重命名旧文件读 `previous_path`。fork PR 的 head 文件用 `head_repo` 读取，仍受仓库白名单限制。
-- 每次工具调用有20秒请求超时、单响应4MB、累计8MB预算。只访问 `https://api.github.com`，不跟随重定向或外部下载链接。不支持 GitHub Enterprise 自定义域名或 GitLab MR。
-- Contents API可能解引用仓库内符号链接；文件工具的 `complete` 只说明返回文本完整，不保证是请求路径的原始 Git blob。符号链接本身的变更需另行核对。
-- 不提供全仓库搜索或完整调用链分析。模型按已知路径读取相关接口、测试和配置；路径未知或跨服务依赖缺失时需补充材料，不能猜测。
+模型根据 diff 风险读取完整变更文件和已知依赖；路径未知时明确缺口，不自动构建调用图。Python 符号定位用于辅助理解变更归属，不证明调用关系。
 
-## 本地能力
+每份文件证据记录固定 SHA、路径、完整内容、行数与 SHA256，报告和用例通过 `E0001:L1-L5` 格式引用。保存前校验引用及范围，不验证模型自然语言推论是否正确。
 
-`get_code_diff` 只读取允许的本地仓库，比较两个已提交树，不包含未提交内容，不自动 fetch/pull/checkout。
+保存目录由用户明确指定；成功保存后返回 `report.md`、`test_cases.json`、`evidence.json` 的路径。证据包含源码，仅保存在本机获准目录。用例为未执行草稿，不执行测试、部署或回写 PR。
+
+## 入口检查
 
 ```bash
-CODEDIFF_ALLOWED_REPOS=/绝对路径/业务仓库 .venv/bin/python tools/local_git_diff.py \
-  --repo-path /绝对路径/业务仓库 --base master --head feature/example
+python3 tools/codediff.py --help
 ```
 
-本地分析 prompt 为 `analyze_branch_tests`，读取 `prompts/local_git_workflow.md`（原 `mcp_workflow.md` 已重命名）；Prompt 名称及参数保持不变。
-
-## 文件与验证
-
-- `tools/github_reader.py`：GitHub 只读获取、校验和错误处理。
-- `tools/analysis_artifacts.py`：报告与测试草稿校验、本地独立目录写入。
-- `tools/local_git_diff.py`：原有本地 Git 读取。
-- `mcp_server.py`：stdio MCP 工具和 prompts。
-- `prompts/github_workflow.md`：远程评审与提测的证据获取流程。
-- `prompts/local_git_workflow.md`：本地Git的证据获取流程。
-- `prompts/analysis_output.md`：两个Prompt共享的报告维度、可操作用例约定及保存规则。
-
-验证命令：
-
-```bash
-.venv/bin/python -m unittest discover -s tests -v
-```
+此命令只检查 CLI 帮助入口，不代表业务测试已执行。
