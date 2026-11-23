@@ -7,3 +7,4 @@ __pycache__/
 .local/
 .env
 .env.*
+diff/
