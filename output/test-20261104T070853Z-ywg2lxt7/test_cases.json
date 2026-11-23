@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-11-04T07:08:53.311683+00:00",
+  "mode": "test",
+  "repo": "/Users/jzttttt/JZT_WorkSpace/WorWorWorWorWork/互联网实习面试/TME实习文档/phone-agent-skill",
+  "base_sha": "7d75e66f2a5691b91c124e5381d12663aeb29762",
+  "head_sha": "1c110d6e06af21a4853e2fab05d351800b44e859",
+  "status": "draft",
+  "case_count": 6,
+  "cases": [
+    {
+      "name": "device_lock_prevents_duplicate_runs",
+      "steps": [
+        {
+          "action": "Create two run requests with the same device_id while the first run is still active.",
+          "expected": "The second request returns HTTP 409 and the active device map contains only the first run_id."
+        }
+      ],
+      "evidence": [
+        "sdk/phone_agent/web/services/run_manager.py: _active_runs is keyed by device_id in create_run and _supervise",
+        "sdk/phone_agent/web/routes/runs.py: /api/runs and /api/runs/json check run_manager.is_busy(device_id) before creating a run"
+      ],
+      "priority": "P0"
+    },
+    {
+      "name": "device_lock_released_after_run_finishes",
+      "steps": [
+        {
+          "action": "Start a run for a device, let it finish successfully, and inspect run_manager._active_runs.",
+          "expected": "The device entry is removed from _active_runs after the supervisor finalization."
+        }
+      ],
+      "evidence": [
+        "sdk/phone_agent/web/services/run_manager.py: finally block removes _active_runs[device_id] if it matches run_id",
+        "sdk/phone_agent/web/services/run_manager.py: _supervise closes run resources and clears device lock"
+      ],
+      "priority": "P0"
+    },
+    {
+      "name": "cancelled_run_releases_device",
+      "steps": [
+        {
+          "action": "Create a run, invoke cancel_run, then attempt to start a new run for the same device.",
+          "expected": "The cancelled task no longer keeps the device busy; the next run is accepted."
+        }
+      ],
+      "evidence": [
+        "sdk/phone_agent/web/services/run_manager.py: _finalize_cancelled clears lock with _active_runs.get(device_id) == run_id",
+        "sdk/phone_agent/web/services/run_manager.py: cancel_run calls _finalize_cancelled"
+      ],
+      "priority": "P0"
+    },
+    {
+      "name": "migration_adds_missing_device_id_column_and_index",
+      "steps": [
+        {
+          "action": "Open an SQLite DB whose web_runs table lacks device_id, then run startup/migration logic.",
+          "expected": "The column is added and ix_web_runs_device_id is created without error."
+        }
+      ],
+      "evidence": [
+        "sdk/phone_agent/db/migrate.py: ALTER TABLE web_runs ADD COLUMN device_id VARCHAR(128) when absent",
+        "sdk/phone_agent/db/migrate.py: CREATE INDEX IF NOT EXISTS ix_web_runs_device_id ON web_runs (device_id)"
+      ],
+      "priority": "P0"
+    },
+    {
+      "name": "device_status_reports_busy_state_per_device",
+      "steps": [
+        {
+          "action": "Query /api/devices/status while one device has an active run and another device is offline or idle.",
+          "expected": "Only the active device shows busy=true and the matching run_id; offline/idle devices remain busy=false."
+        }
+      ],
+      "evidence": [
+        "sdk/phone_agent/web/routes/devices.py: get_devices_status reads list_devices and checks d.device_id in active_runs"
+      ],
+      "priority": "P1"
+    },
+    {
+      "name": "runs_list_filters_by_device_id",
+      "steps": [
+        {
+          "action": "Call list_runs(device_id=...) and runs/busy with a specific device_id.",
+          "expected": "The response only reflects records for that device and no other device’s active session."
+        }
+      ],
+      "evidence": [
+        "sdk/phone_agent/web/routes/runs.py: list_runs(device_id=device_id) filters records and run_busy(device_id=device_id) checks device-specific busy state",
+        "sdk/phone_agent/web/services/run_manager.py: list_runs filters memory and DB iterations by device_id"
+      ],
+      "priority": "P1"
+    }
+  ]
+}
